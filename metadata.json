@@ -1,0 +1,5 @@
+{
+  "name": "SepsisIQ·India",
+  "description": "ML-Powered Sepsis Mortality Prediction & Carbapenem Resistance Early Warning Platform for Indian ICUs",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"]
+}
