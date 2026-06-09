@@ -26,45 +26,81 @@ if (GEMINI_API_KEY && GEMINI_API_KEY !== "MY_GEMINI_API_KEY") {
 app.post("/api/inference", async (req, res) => {
   try {
     const { patientData, scores } = req.body;
+    // Parse all patient vitals to numbers for correct comparison
+    const vitals = {
+      spo2: parseFloat(patientData.spo2) || 0,
+      hr: parseFloat(patientData.hr) || 0,
+      lactate: parseFloat(patientData.lactate) || 0,
+      map: parseFloat(patientData.map) || 0,
+      temp: parseFloat(patientData.temp) || 0,
+      rr: parseFloat(patientData.rr) || 0,
+      gcs: parseFloat(patientData.gcs) || 15,
+      wbc: parseFloat(patientData.wbc) || 0,
+      creatinine: parseFloat(patientData.creatinine) || 0,
+      platelets: parseFloat(patientData.platelets) || 0,
+      age: parseFloat(patientData.age) || 0,
+      icu_stay: parseFloat(patientData.icu_stay) || 0,
+    };
+
+    // Determine clinical context from scores for the AI
+    const sofaRisk = scores.sofa >= 8 ? 'critical' : scores.sofa >= 4 ? 'high' : scores.sofa >= 2 ? 'moderate' : 'low';
+    const qsofaRisk = scores.qsofa >= 2 ? 'high' : 'low';
+    const expectedMortality = scores.sofa >= 8 ? '50-80%' : scores.sofa >= 4 ? '20-40%' : scores.sofa >= 2 ? '5-15%' : '<5%';
+
     const prompt = `
       You are an advanced clinical ML inference engine for SepsisIQ·India.
-      Analyze the following patient data and pre-computed clinical scores to provide a comprehensive sepsis risk assessment.
+      Your task is to generate ACCURATE, DATA-DRIVEN sepsis risk scores based STRICTLY on the patient vitals and pre-computed clinical scores below.
       
-      CRITICAL INSTRUCTION: You MUST return a VALID JSON object. All number fields must be actual numbers (0-100), not strings. All array fields must be populated with clinically relevant data based on the inputs.
+      CRITICAL RULES:
+      1. You MUST return a VALID JSON object only — no markdown, no explanation outside JSON.
+      2. All numeric fields (mortalityRisk, crRisk, deteriorationProb6h) must be actual numbers (0-100).
+      3. Your risk scores MUST be consistent with the pre-computed clinical scores below. Do NOT inflate risk scores beyond what the data supports.
+      4. If SOFA is low (0-2), mortalityRisk should be LOW (<15). If SOFA is 4-7, moderate (20-45). If SOFA >=8, high (50-80%).
       
-      Patient Data:
-      ${JSON.stringify(patientData, null, 2)}
+      === PATIENT VITALS (Verified Numbers) ===
+      - SpO2: ${vitals.spo2}%
+      - Heart Rate: ${vitals.hr} bpm
+      - MAP: ${vitals.map} mmHg
+      - Temperature: ${vitals.temp}°C
+      - Respiratory Rate: ${vitals.rr} breaths/min
+      - GCS: ${vitals.gcs}
+      - Lactate: ${vitals.lactate} mmol/L
+      - WBC: ${vitals.wbc} x10³/μL
+      - Creatinine: ${vitals.creatinine} mg/dL
+      - Platelets: ${vitals.platelets} x10³/μL
+      - Age: ${vitals.age} years
+      - ICU Stay: ${vitals.icu_stay} days
+      - Origin: ${patientData.origin || 'Unknown'}
+      - Septic Shock: ${patientData.shock || 'No'}
+      - Prior Carbapenem Use: ${patientData.prior_carbapenem || 'No'}
+      - Comorbidities: ${Array.isArray(patientData.comorbidities) ? patientData.comorbidities.join(', ') || 'None' : 'None'}
+      - Infection Source: ${patientData.source || 'Unknown'}
       
-      Pre-computed Scores:
-      - SOFA Score: ${scores.sofa}
-      - qSOFA Score: ${scores.qsofa}
+      === PRE-COMPUTED CLINICAL SCORES ===
+      - SOFA Score: ${scores.sofa} → Risk Level: ${sofaRisk.toUpperCase()} (Expected mortality: ${expectedMortality})
+      - qSOFA Score: ${scores.qsofa} → ${qsofaRisk === 'high' ? 'HIGH risk — sepsis screening positive' : 'Low risk — sepsis screening negative'}
       - APACHE II: ${scores.apacheII}
       - RISC Score: ${scores.risc}
       
-      The patient's current vitals:
-      - SPO2: ${patientData.vitals?.spo2}%
-      - HR: ${patientData.vitals?.hr} bpm
-      - Lactate: ${patientData.vitals?.lactate} mmol/L
-      - MAP: ${patientData.vitals?.map} mmHg
-      
-      Expected JSON Structure Example:
+      === REQUIRED OUTPUT FORMAT ===
+      Return ONLY this JSON structure:
       {
-        "mortalityRisk": 42.5,
-        "crRisk": 65.0,
-        "deteriorationProb6h": 28.5,
+        "mortalityRisk": <number 0-100, MUST align with SOFA score risk level above>,
+        "crRisk": <number 0-100, probability of carbapenem-resistant organism; increase with prior carbapenem use, nosocomial, high SOFA>,
+        "deteriorationProb6h": <number 0-100, probability of clinical deterioration in 6 hours>,
         "organisms": [
-          { "name": "Klebsiella pneumoniae", "likelihood": 45, "crRiskLevel": "High" }
+          { "name": "<organism name>", "likelihood": <number 0-100>, "crRiskLevel": "<High|Medium|Low>" }
         ],
         "recommendedRegimen": [
-          { "drug": "Meropenem", "dose": "2g", "route": "IV", "frequency": "q8h", "rationale": "High SOFA and risk of CR Gram negatives" }
+          { "drug": "<drug name>", "dose": "<dose>", "route": "<IV|PO|IM>", "frequency": "<e.g., q8h>", "rationale": "<clinical rationale>" }
         ],
-        "cultureRecommendations": ["Blood Culture x 2", "Urine Culture"],
-        "escalationThresholds": ["MAP < 65 mmHg", "Lactate > 4"],
+        "cultureRecommendations": ["<recommendation 1>", "<recommendation 2>"],
+        "escalationThresholds": ["<threshold 1>", "<threshold 2>"],
         "shapExplainability": {
-          "riskIncreasing": [{ "factor": "Lactate 3.8", "impact": 0.15 }],
-          "protective": [{ "factor": "Fluid Resuscitation", "impact": 0.05 }]
+          "riskIncreasing": [{ "factor": "<factor name>", "impact": <decimal 0-1> }],
+          "protective": [{ "factor": "<factor name>", "impact": <decimal 0-1> }]
         },
-        "clinicalReasoning": "Consistent with sepis/septic shock based on elevated SOFA and Lactate."
+        "clinicalReasoning": "<detailed clinical reasoning based on actual vitals above>"
       }
     `;
 

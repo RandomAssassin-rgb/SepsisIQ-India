@@ -24,42 +24,61 @@ export default function Results() {
     risc: 12
   };
 
+  const error = location.state?.error || false;
+
   const rawAiResults = location.state?.aiResults;
-  const aiResults = (rawAiResults && Object.keys(rawAiResults).length > 0) ? rawAiResults : {
-    mortalityRisk: 84,
-    crRisk: 87,
-    deteriorationProb6h: 72,
+  // Only use fallback data if no real AI results available (i.e., error state)
+  // Fallback uses low/moderate values so we don't falsely alarm a potentially healthy patient
+  const aiResults = (rawAiResults && typeof rawAiResults.mortalityRisk === 'number') ? rawAiResults : {
+    mortalityRisk: 0,
+    crRisk: 0,
+    deteriorationProb6h: 0,
     organisms: [
-      { name: 'Klebsiella pneumoniae', likelihood: 45, crRiskLevel: 'High' },
-      { name: 'Acinetobacter baumannii', likelihood: 30, crRiskLevel: 'High' },
-      { name: 'Escherichia coli', likelihood: 15, crRiskLevel: 'Medium' }
+      { name: 'Assessment Unavailable', likelihood: 0, crRiskLevel: 'Low' },
     ],
     recommendedRegimen: [
-      { drug: 'Polymyxin B', dose: '105 mg IV q12h (Loading: 175 mg)', route: 'IV', frequency: 'q12h', rationale: 'Weight-based: 1.5 mg/kg IV q12h' },
-      { drug: 'Tigecycline', dose: '100 mg IV q12h (Loading: 200 mg)', route: 'IV', frequency: 'q12h', rationale: 'Standard dosing' }
+      { drug: 'N/A — AI Offline', dose: 'Contact your clinical team', route: 'N/A', frequency: 'N/A', rationale: 'AI inference was not available. Please consult local antibiotic guidelines.' },
     ],
-    cultureRecommendations: ['Obtain blood cultures BEFORE initiating new antibiotics.'],
-    escalationThresholds: [
-      'Repeat Lactate in 2 hours. Escalate if > 5.0 mmol/L.',
-      'Continuous MAP monitoring. Target > 65 mmHg.'
-    ],
+    cultureRecommendations: ['AI inference offline. Follow local hospital protocols.'],
+    escalationThresholds: ['Monitor vitals every 30 minutes.', 'Escalate to senior clinician if condition worsens.'],
     shapExplainability: {
-      riskIncreasing: [
-        { factor: 'Septic Shock', impact: 0.24 },
-        { factor: `Serum Lactate (${patientData.lactate} mmol/L)`, impact: 0.18 },
-        { factor: 'Diabetes History', impact: 0.09 }
-      ],
-      protective: [
-        { factor: `Age (${patientData.age}y)`, impact: 0.05 }
-      ]
+      riskIncreasing: [],
+      protective: []
     },
-    clinicalReasoning: 'The model identifies Septic Shock as the primary driver for the elevated mortality risk. The synergistic effect between elevated Serum Lactate and pre-existing Diabetes indicates a significantly compromised metabolic state.'
+    clinicalReasoning: 'AI inference is currently offline. Risk assessment is not available. Please review clinical scores above and consult local sepsis protocols.'
   };
+
+  const riskStatus = aiResults.mortalityRisk >= 70 ? 'critical' : aiResults.mortalityRisk >= 50 ? 'high' : aiResults.mortalityRisk >= 20 ? 'moderate' : 'low';
+  
+  const bannerConfigs = {
+    critical: {
+      bg: 'bg-[#c81e1e]',
+      title: 'Critical Sepsis Risk',
+      icon: <AlertTriangle size={24} className="text-white animate-pulse" />
+    },
+    high: {
+      bg: 'bg-orange-600',
+      title: 'High Sepsis Risk',
+      icon: <AlertTriangle size={24} className="text-white" />
+    },
+    moderate: {
+      bg: 'bg-amber-600',
+      title: 'Moderate Sepsis Risk',
+      icon: <Info size={24} className="text-white" />
+    },
+    low: {
+      bg: 'bg-teal-600',
+      title: 'Low Sepsis Risk / Stable',
+      icon: <CheckCircle size={24} className="text-white" />
+    }
+  };
+
+  const currentBanner = bannerConfigs[riskStatus];
 
   const generateProgressNote = () => {
     return `SepsisIQ Assessment - ${new Date().toLocaleString()}
-Patient: IND-8829-X (${patientData.age}y)
-Status: CRITICAL RISK DETECTED
+Patient: ${patientData.name || 'Anonymous'} (${patientData.age || 'Unknown'}y)
+Status: ${riskStatus.toUpperCase()} RISK DETECTED
 
 Scores:
 - SOFA: ${scores.sofa}
@@ -190,16 +209,16 @@ ${aiResults.escalationThresholds?.map((t: string) => `- ${t}`).join('\n')}
 
   return (
     <div className="pb-8 bg-slate-50 min-h-screen">
-      {/* Critical Risk Banner */}
-      <div className="bg-[#c81e1e] text-white p-4 pt-8 pb-6 rounded-b-3xl shadow-lg mb-6 sticky top-0 z-20">
+      {/* Dynamic Sepsis Risk Banner */}
+      <div className={`${currentBanner.bg} text-white p-4 pt-8 pb-6 rounded-b-3xl shadow-lg mb-6 sticky top-0 z-20`}>
         <div className="flex items-start justify-between max-w-md mx-auto">
           <div className="flex items-start gap-3">
             <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm">
-              <AlertTriangle size={24} className="text-white animate-pulse" />
+              {currentBanner.icon}
             </div>
             <div>
-              <h2 className="text-xl font-bold mb-1">Critical Risk Detected</h2>
-              <p className="text-white/80 text-sm">Patient ID: IND-8829-X • Last Updated: 2m ago</p>
+              <h2 className="text-xl font-bold mb-1">{currentBanner.title}</h2>
+              <p className="text-white/80 text-sm">Patient: {patientData.name || 'Anonymous'} • Bed: {patientData.bed || 'Ward'}</p>
             </div>
           </div>
           <div className="relative">
@@ -219,6 +238,16 @@ ${aiResults.escalationThresholds?.map((t: string) => `- ${t}`).join('\n')}
       </div>
 
       <div className="px-4 max-w-md mx-auto space-y-6">
+        
+        {error && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl flex items-start gap-3 shadow-sm mb-4">
+            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+            <div>
+              <div className="font-bold text-sm">Offline Simulation Mode</div>
+              <div className="text-xs text-amber-700 mt-0.5">Live AI inference is currently offline (Check server settings & API keys). Displaying static clinical fallback simulation template.</div>
+            </div>
+          </div>
+        )}
         
         {/* Score Cards */}
         <div className="grid grid-cols-4 gap-2 mb-2">
