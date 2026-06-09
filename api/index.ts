@@ -38,7 +38,7 @@ app.post("/api/inference", async (req, res) => {
       Pre-computed Scores:
       - SOFA Score: ${scores.sofa}
       - qSOFA Score: ${scores.qsofa}
-      - APACHE II: ${scores.apache}
+      - APACHE II: ${scores.apacheII}
       - RISC Score: ${scores.risc}
       
       The patient's current vitals:
@@ -77,14 +77,26 @@ app.post("/api/inference", async (req, res) => {
           "X-Title": "SepsisIQ India",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.0-flash-001",
+          model: "google/gemini-2.5-flash",
           messages: [{ role: "user", content: prompt }],
           response_format: { type: "json_object" },
           temperature: 0.1,
+          max_tokens: 1500,
         }),
       });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API error (status ${response.status}): ${errorText}`);
+      }
       const data = await response.json();
-      return res.json(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
+      if (data.error) {
+        throw new Error(`OpenRouter API returned error: ${data.error.message || JSON.stringify(data.error)}`);
+      }
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error("OpenRouter API returned empty response.");
+      }
+      return res.json(JSON.parse(content));
     } else if (ai) {
       const responseData = await ai.models.generateContent({
         model: "gemini-1.5-flash",
@@ -172,11 +184,21 @@ app.post("/api/polish", async (req, res) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.0-flash-001",
+          model: "google/gemini-2.5-flash",
           messages: [{ role: "user", content: prompt }],
+          max_tokens: 1000,
         }),
       });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn(`OpenRouter Polish error (status ${response.status}): ${errorText}`);
+        return res.send(note);
+      }
       const data = await response.json();
+      if (data.error) {
+        console.warn(`OpenRouter Polish returned error: ${data.error.message || JSON.stringify(data.error)}`);
+        return res.send(note);
+      }
       return res.send(data.choices?.[0]?.message?.content || note);
     } else if (ai) {
       const responseData = await ai.models.generateContent({

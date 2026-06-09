@@ -24,7 +24,8 @@ export default function Results() {
     risc: 12
   };
 
-  const aiResults = location.state?.aiResults || {
+  const rawAiResults = location.state?.aiResults;
+  const aiResults = (rawAiResults && Object.keys(rawAiResults).length > 0) ? rawAiResults : {
     mortalityRisk: 84,
     crRisk: 87,
     deteriorationProb6h: 72,

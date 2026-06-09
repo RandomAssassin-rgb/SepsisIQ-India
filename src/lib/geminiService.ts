@@ -28,10 +28,17 @@ export const runInference = async (patientData: any, scores: any) => {
  * Ensures AI response data has all required fields and arrays to prevent UI crashes.
  */
 function normalizeInferenceData(data: any) {
+  const prob6h = typeof data.deteriorationProb6h === 'number' 
+    ? data.deteriorationProb6h 
+    : (parseFloat(data.deteriorationProb6h) || (typeof data.deteriorationProbability6h === 'number' 
+      ? data.deteriorationProbability6h 
+      : (parseFloat(data.deteriorationProbability6h) || 0)));
+
   return {
     mortalityRisk: typeof data.mortalityRisk === 'number' ? data.mortalityRisk : (parseFloat(data.mortalityRisk) || 0),
     crRisk: typeof data.crRisk === 'number' ? data.crRisk : (parseFloat(data.crRisk) || 0),
-    deteriorationProb6h: typeof data.deteriorationProb6h === 'number' ? data.deteriorationProb6h : (parseFloat(data.deteriorationProb6h) || 0),
+    deteriorationProb6h: prob6h,
+    deteriorationProbability6h: prob6h,
     organisms: Array.isArray(data.organisms) ? data.organisms : [],
     recommendedRegimen: Array.isArray(data.recommendedRegimen) ? data.recommendedRegimen : [],
     cultureRecommendations: Array.isArray(data.cultureRecommendations) ? data.cultureRecommendations : [],
